@@ -13,8 +13,8 @@ from partition import iid_partition, noniid_partition
 
 # Configuration for our initial test
 N_CLIENTS = 100
-SELECTED = 5
-ROUNDS = 30
+SELECTED = 10
+ROUNDS = 100
 LOCAL_EPOCHS = 10
 BATCH_SIZE = 128
 LR = 0.0003
@@ -109,15 +109,26 @@ def evaluate(model):
     return acc, f1
 
 
+
 # 4. Federated training loop
 history = []
 global_model = FedConvNN()
+
+run_name = (
+    f"fedconvnn_{DATA_MODE}"
+    f"_clients{SELECTED}"
+    f"_epochs{LOCAL_EPOCHS}"
+    f"_rounds{ROUNDS}"
+)
+
+print("Model: FedConvNN")
+print("Data distribution:", DATA_MODE)
+print("Selected clients per round:", SELECTED)
 
 for r in range(ROUNDS):
 
     print(f"\nCommunication round {r + 1}/{ROUNDS}")
 
-    # Randomly select participating clients
     selected = rng.choice(
         N_CLIENTS,
         size=SELECTED,
@@ -128,7 +139,7 @@ for r in range(ROUNDS):
 
     updates = []
 
-    # Each client trains independently
+    # Train selected clients
     for client_id in selected:
 
         ids = clients[int(client_id)]
@@ -140,31 +151,47 @@ for r in range(ROUNDS):
     # Aggregate local models
     new_weights = fedavg(updates)
 
-    # Update global model
     global_model.load_state_dict(new_weights)
 
+    # Evaluate global model
     acc, f1 = evaluate(global_model)
+
     history.append([r + 1, acc, f1])
 
     print(f"Accuracy: {acc * 100:.2f}%")
     print(f"Macro F1: {f1:.4f}")
 
+    # Save checkpoints every 25 rounds
+    if (r + 1) % 25 == 0:
+
+        torch.save(
+            global_model.state_dict(),
+            f"{run_name}_round{r+1}.pth"
+        )
+
+        np.savetxt(
+            f"{run_name}_history.csv",
+            np.array(history),
+            delimiter=",",
+            header="round,accuracy,f1",
+            comments=""
+        )
+
+        print(f"Checkpoint saved at round {r+1}")
 
 
-# Save training history
+# 5. Save final results
 np.savetxt(
-    f"fedconvnn_{DATA_MODE}_history.csv",
+    f"{run_name}_history.csv",
     np.array(history),
     delimiter=",",
     header="round,accuracy,f1",
     comments=""
 )
-print("Training history saved!")
 
-# Save the final global model
 torch.save(
     global_model.state_dict(),
-    f"fedconvnn_{DATA_MODE}.pth"
+    f"{run_name}.pth"
 )
 
 print("\nFederated training completed!")
